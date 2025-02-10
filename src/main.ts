@@ -23,7 +23,8 @@ interface Product extends BaseEntity {
   category: ECategory
 }
 
-interface CartProduct extends Product {
+interface CartProduct extends BaseEntity { //Q: extend or add product as an attribute? + remove extend BaseEntity or not?
+  product: Product;
   count: number;
 }
 
@@ -58,7 +59,7 @@ interface SalesItem extends BaseEntity {
 
 
 class Cart extends ProductsHandler<CartProduct> {
-
+  public cartTotal: number = 0
   constructor() {
     super()
   }
@@ -70,7 +71,7 @@ class Cart extends ProductsHandler<CartProduct> {
 
     let totalPrice = 0;
     for (const product of this.products) {
-      totalPrice += product.price * product.count;
+      totalPrice += product.product.price * product.count;
     }
 
     const saleItem: SalesItem = {
@@ -117,7 +118,7 @@ const addProductForm = document.getElementById('addProductForm');
 // 1. Add New Product Button 
 
 if (addProductBtn) {
-  addProductBtn.addEventListener('click', () => {
+  addProductBtn.addEventListener('click', () => { //Q: leh click: no event, submit: e
     if (addProductModal) {
       addProductModal.style.display = 'block';
     }
@@ -140,7 +141,7 @@ if (addProductForm) {
 
     //create the product, add it to inventory product list then add it to the DOM
 
-    const newProduct = createNewProduct(); //PROBLEM: choosing car but output clothing for some reason
+    const newProduct = createNewProduct();
 
     // console.log("Creating new product...");
     // console.log(newProduct);
@@ -151,7 +152,8 @@ if (addProductForm) {
 
     //add each of mainInventory.products to the DOM: divID=productsList - class=products-grid
     //call fn add to DOM
-    updateInventoryDOM(mainInventory.products);
+    // updateInventoryDOM(mainInventory.products);
+    updateContainerDOM(mainInventory.products, "productsList","product-card", renderInventoryProduct)
 
     if (addProductModal) {
       addProductModal.style.display = 'none';
@@ -166,33 +168,38 @@ function createNewProduct(): Product {
   const name = (document.getElementById("productName") as HTMLInputElement).value;
   const price = parseFloat((document.getElementById("productPrice") as HTMLInputElement).value);
   const stock = parseInt((document.getElementById("productStock") as HTMLInputElement).value);
-  const category = (document.getElementById("productCategory") as HTMLSelectElement).value as ECategory; //choosing car but output clothing for some reason :)))
+  const category = (document.getElementById("productCategory") as HTMLSelectElement).value as ECategory;
 
   return { _id: uuidv4(), name, price, stock, category };
 }
 
+function updateContainerDOM<T>(productsList: T[], containerID: string, cardClassName: string, renderFunction: (item: T, element: HTMLDivElement) => void): void {
+  const container = document.querySelector(`#${containerID}`);
 
-function updateInventoryDOM(productsList: Product[]): void {
-
-  const InventoryContainer = document.querySelector("#productsList");
-  if (InventoryContainer) {
-    InventoryContainer.innerHTML = ""
+  if(container) {
+    container.innerHTML = "";
+    if(container.nextElementSibling)
+      container.nextElementSibling.remove();
 
     productsList.forEach((product) => {
-
+      
       const newElement = document.createElement("div");
-      newElement.classList.add("product-card");
-      renderProduct(product, newElement);
+      newElement.classList.add(cardClassName);
+      renderFunction(product, newElement);
 
-      InventoryContainer.append(newElement);
+      container.append(newElement);
+    });
+
+    if(containerID == "cartItems") {
+      const newElementTotal = document.createElement("p");
+      newElementTotal.innerText = "Total: $" + currentCart.cartTotal;
+      newElementTotal.classList.add("cart-total");
+      container.insertAdjacentElement("afterend", newElementTotal); //repeats itself
     }
-    )
-
   }
-
 }
 
-function renderProduct(product: Product, newElement: HTMLDivElement) {
+function renderInventoryProduct(product: Product, newElement: HTMLDivElement): void {
 
   const newElementName = document.createElement("p");
   newElementName.innerText = product.name;
@@ -210,9 +217,10 @@ function renderProduct(product: Product, newElement: HTMLDivElement) {
   const newElementButton = document.createElement("button");
   newElementButton.classList.add("btn")
   newElementButton.classList.add("primary")
-
+  newElementButton.classList.add("addToCartBtn")
+  newElementButton.id = product._id
   newElementButton.innerText = "Add to Cart";
-    
+
   newElement.append(newElementName);
   newElement.append(newElementPrice);
   newElement.append(newElementStock);
@@ -220,9 +228,78 @@ function renderProduct(product: Product, newElement: HTMLDivElement) {
   newElement.append(newElementButton);
 }
 
+
 /*************************************************************/
 
 // 2. Add To Cart Button
+
+// const addToCartBtn = document.getElementById("addToCartBtn"); //Q: won't work??
+//   addToCartBtn.addEventListener('click', () => {
+//     //1. get id of clicked button
+//     const product_id = addToCartBtn.id;
+//     var addedProduct: Product;
+
+
+// EVENT DELEGATION
+document.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  if (target.classList.contains("addToCartBtn")) {
+    const product_id = target.id;
+    addProductToCart(product_id);
+  }
+});
+
+
+function addProductToCart(product_id: string): void {
+  const chosen_product = mainInventory.products.find(p => p._id === product_id);
+
+  if (chosen_product) {
+    if (chosen_product.stock <= 0) { //will be removed later after validation
+      alert("Out of stock!");
+      return;
+    }
+
+    const cartItem = currentCart.products.find(p => p._id === product_id); //q: cartProduct has id wala product heyya elly 3andaha id???
+    if (cartItem)
+      cartItem.count++; //keda baghayyar felmain item or not? YES
+    else
+      currentCart.addProduct(createCartProduct(chosen_product));
+
+    chosen_product.stock--;
+    currentCart.cartTotal += chosen_product.price;
+  }
+
+    updateContainerDOM(mainInventory.products, "productsList","product-card", renderInventoryProduct)
+    updateContainerDOM(currentCart.products, "cartItems", "cart-item", renderCartProduct);
+
+}
+
+
+function createCartProduct(product: Product): CartProduct {
+  return {
+    _id: product._id,
+    product: product,
+    count: 1
+  }
+}
+
+function renderCartProduct(product: CartProduct, newElement: HTMLDivElement): void {
+  const container = document.createElement("div");
+  container.style.display = "flex"; 
+  container.style.justifyContent = "space-between"; 
+  container.style.width = "100%"; 
+
+  const productInfo = document.createElement("span");
+  productInfo.innerText = `${product.product.name} x ${product.count}`;
+
+  const totalPrice = document.createElement("span");
+  totalPrice.innerText = `${product.product.price * product.count} $`;
+
+  container.append(productInfo, totalPrice);
+  newElement.append(container);
+}
+
+
 // 3. Checkout
 
 
